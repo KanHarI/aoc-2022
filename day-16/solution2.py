@@ -158,7 +158,6 @@ def get_bfs_kids(
             p2_time_to_dest=ptr.p2_time_to_dest,
             path=ptr.path,
         )
-        print(BEST_YET, BEST_PTR)
     for vertex in non_zero_vertices:
         if (
             vertex in ptr.opened_valves
@@ -198,7 +197,6 @@ def get_bfs_kids(
                 or pressure_to_time > BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH[path_len]
             ):
                 BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH[path_len] = pressure_to_time
-                print("Best pressure to time squared: ", pressure_to_time)
         if candidate_child.p1_time_to_dest > candidate_child.p2_time_to_dest:
             tmp_time = candidate_child.p1_time_to_dest
             candidate_child.p1_time_to_dest = candidate_child.p2_time_to_dest
