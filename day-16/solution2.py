@@ -2,6 +2,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Optional
+from tqdm import tqdm
 
 LINE_REGEX = re.compile(
     "^Valve ([A-Z]{2}) has flow rate=([0-9]+); tunnel(?:s)? lead(?:s)? to valve(?:s)? ((?:[A-Z]{2}(?:, )?)+)$"
@@ -140,6 +141,8 @@ def get_bfs_kids(
             pressure_released=ptr.pressure_released + pressure_per_tick * ptr.p1_time_to_dest,
             path=ptr.path + [(ptr.p1_dest, ptr.time_remaining - ptr.p1_time_to_dest)],
         )
+        if candidate_child.time_remaining < 0:
+            continue
         if candidate_child.p1_time_to_dest > candidate_child.p2_time_to_dest:
             tmp_time = candidate_child.p1_time_to_dest
             candidate_child.p1_time_to_dest = candidate_child.p2_time_to_dest
@@ -170,6 +173,10 @@ def choose_2(arr: list[str]) -> list[tuple[str, str]]:
         for j in range(i + 1, len(arr)):
             results.append((arr[i], arr[j]))
     return results
+
+
+def flatten(l):
+    return [item for sublist in l for item in sublist]
 
 
 def solve() -> tuple[int, Optional[BfsPtr]]:
@@ -206,19 +213,13 @@ def solve() -> tuple[int, Optional[BfsPtr]]:
     while len(BFS_DICT) > 0:
         copy_of_bfs_dict = {**BFS_DICT}
         BFS_DICT = {}
-        i = 0
-        for fingerprint, ptrs in copy_of_bfs_dict.items():
-            if fingerprint[:6] == "BBDDJJ":
-                a = 1
-            for ptr in ptrs:
-                i += 1
+        for ptr in tqdm(flatten(map(list, copy_of_bfs_dict.values()))):
                 get_bfs_kids(
                     vertices=vertices,
                     tunnels_map=tunnels_map,
                     ptr=ptr,
                     non_zero_vertices=non_zero_vertices,
                 )
-        print(i, "ptrs")
     return BEST_YET, BEST_PTR
 
 
