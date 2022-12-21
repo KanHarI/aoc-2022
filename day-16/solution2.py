@@ -5,7 +5,7 @@ General solution idea:
 * For every bfs pointer, create a fingerprint by the open valves, and planned next 2 to be opened
 * If 2 bfs ptrs have the same fingerprint and one is strictly better than the other, delete the other
 [Heuristic]
-* Pressure released should be approximately O(t^2) where t is time for start
+* Pressure released should be approximately O(t^2) where t is time from start
 * Find the best ratio of pressure / time squared for each path length, discard those worse than
 it by more than a factor
 * The factor starts low and reaches almost 1 where travel is almost done
