@@ -1,7 +1,8 @@
+import random
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TypeVar, cast
 from tqdm import tqdm
 
 LINE_REGEX = re.compile(
@@ -84,14 +85,36 @@ def is_better_than(p1: BfsPtr, p2: BfsPtr) -> bool:
     return (
         p1.pressure_released >= p2.pressure_released
         and p1.time_remaining >= p2.time_remaining
-        and p1.p1_time_to_dest <= p2.p1_time_to_dest + p1.time_remaining - p2.time_remaining
-        and p1.p2_time_to_dest <= p2.p2_time_to_dest + p1.time_remaining - p2.time_remaining
+        and p1.p1_time_to_dest
+        <= p2.p1_time_to_dest + p1.time_remaining - p2.time_remaining
+        and p1.p2_time_to_dest
+        <= p2.p2_time_to_dest + p1.time_remaining - p2.time_remaining
     )
 
 
 BFS_DICT: dict[Fingerprint, list[BfsPtr]] = {}
 BEST_YET: int = 0
 BEST_PTR: Optional[BfsPtr] = None
+
+TIME_EXPONENT = 2  # Pressure released is proportional to time squared up to diminishing returns on saturating the map
+BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH: dict[int, float] = {}
+PRESSURE_TO_TIME_MIN_PATH_LENGTH = 2
+PRESSURE_TO_TIME_SQUARED_ALLOWED_RATIO_TO_BEST_BY_PATH_LENGTH = {
+    # Kinda guess, just a little bit of fine tune
+    2: 0.5,
+    3: 0.55,
+    4: 0.6,
+    5: 0.65,
+    6: 0.7,
+    7: 0.75,
+    8: 0.8,
+    9: 0.85,
+    10: 0.86,
+    11: 0.88,
+    12: 0.89,
+    13: 0.9,
+    14: 0.95,
+}
 
 
 def get_bfs_kids(
@@ -102,16 +125,29 @@ def get_bfs_kids(
 ) -> None:
     global BEST_YET
     global BEST_PTR
+    global BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH
+    ptr_path_len = len(ptr.path)
+    if (
+        ptr_path_len >= PRESSURE_TO_TIME_MIN_PATH_LENGTH
+        and ptr_path_len in BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH
+        and (ptr.pressure_released / (MAX_TIME - ptr.time_remaining) ** TIME_EXPONENT)
+        / BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH[ptr_path_len]
+        < PRESSURE_TO_TIME_SQUARED_ALLOWED_RATIO_TO_BEST_BY_PATH_LENGTH[ptr_path_len]
+    ):
+        return
     pressure_per_tick = sum([vertices[x].flow_rate for x in ptr.opened_valves])
     possible_pressure = ptr.pressure_released + ptr.time_remaining * pressure_per_tick
     if ptr.p1_time_to_dest < ptr.time_remaining:
-        possible_pressure += (ptr.time_remaining - ptr.p1_time_to_dest) * vertices[ptr.p1_dest].flow_rate
+        possible_pressure += (ptr.time_remaining - ptr.p1_time_to_dest) * vertices[
+            ptr.p1_dest
+        ].flow_rate
     if ptr.p2_time_to_dest < ptr.time_remaining:
-        possible_pressure += (ptr.time_remaining - ptr.p2_time_to_dest) * vertices[ptr.p2_dest].flow_rate
+        possible_pressure += (ptr.time_remaining - ptr.p2_time_to_dest) * vertices[
+            ptr.p2_dest
+        ].flow_rate
 
     if possible_pressure > BEST_YET:
         BEST_YET = possible_pressure
-        print(BEST_YET)
         BEST_PTR = BfsPtr(
             time_remaining=ptr.time_remaining,
             opened_valves=ptr.opened_valves,
@@ -122,7 +158,7 @@ def get_bfs_kids(
             p2_time_to_dest=ptr.p2_time_to_dest,
             path=ptr.path,
         )
-        print(BEST_PTR)
+        print(BEST_YET, BEST_PTR)
     for vertex in non_zero_vertices:
         if (
             vertex in ptr.opened_valves
@@ -138,11 +174,31 @@ def get_bfs_kids(
             p1_time_to_dest=dt,
             p2_dest=ptr.p2_dest,
             p2_time_to_dest=ptr.p2_time_to_dest - ptr.p1_time_to_dest,
-            pressure_released=ptr.pressure_released + pressure_per_tick * ptr.p1_time_to_dest,
+            pressure_released=ptr.pressure_released
+            + pressure_per_tick * ptr.p1_time_to_dest,
             path=ptr.path + [(ptr.p1_dest, ptr.time_remaining - ptr.p1_time_to_dest)],
         )
         if candidate_child.time_remaining < 0:
             continue
+        path_len = len(candidate_child.path)
+        if path_len >= PRESSURE_TO_TIME_MIN_PATH_LENGTH:
+            pressure_to_time = candidate_child.pressure_released / (
+                (MAX_TIME - candidate_child.time_remaining) ** TIME_EXPONENT
+            )
+            if (
+                path_len in BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH
+                and pressure_to_time / BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH[path_len]
+                < PRESSURE_TO_TIME_SQUARED_ALLOWED_RATIO_TO_BEST_BY_PATH_LENGTH[
+                    path_len
+                ]
+            ):
+                continue
+            if (
+                path_len not in BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH
+                or pressure_to_time > BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH[path_len]
+            ):
+                BEST_PRESSURE_TO_TIME_BY_PATH_LENGTH[path_len] = pressure_to_time
+                print("Best pressure to time squared: ", pressure_to_time)
         if candidate_child.p1_time_to_dest > candidate_child.p2_time_to_dest:
             tmp_time = candidate_child.p1_time_to_dest
             candidate_child.p1_time_to_dest = candidate_child.p2_time_to_dest
@@ -175,7 +231,10 @@ def choose_2(arr: list[str]) -> list[tuple[str, str]]:
     return results
 
 
-def flatten(l):
+T = TypeVar("T")
+
+
+def flatten(l: list[list[T]]) -> list[T]:
     return [item for sublist in l for item in sublist]
 
 
@@ -213,13 +272,15 @@ def solve() -> tuple[int, Optional[BfsPtr]]:
     while len(BFS_DICT) > 0:
         copy_of_bfs_dict = {**BFS_DICT}
         BFS_DICT = {}
-        for ptr in tqdm(flatten(map(list, copy_of_bfs_dict.values()))):
-                get_bfs_kids(
-                    vertices=vertices,
-                    tunnels_map=tunnels_map,
-                    ptr=ptr,
-                    non_zero_vertices=non_zero_vertices,
-                )
+        ptrs = flatten(cast(list[list[BfsPtr]], map(list, copy_of_bfs_dict.values())))
+        random.shuffle(ptrs)
+        for ptr in tqdm(ptrs):
+            get_bfs_kids(
+                vertices=vertices,
+                tunnels_map=tunnels_map,
+                ptr=ptr,
+                non_zero_vertices=non_zero_vertices,
+            )
     return BEST_YET, BEST_PTR
 
 
